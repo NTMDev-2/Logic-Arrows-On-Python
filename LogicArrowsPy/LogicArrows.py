@@ -561,56 +561,51 @@ BLOCK_ID: dict[type[Block], int] = {
 }
 
 SESSION_ID = random.randint(1, 999999)
-def save():
-    string = ''
-    for (x, y), block in WORLD.items():
-        x_segment = f'X{x}'
-        y_segment = f'Y{y}'
-        block_segment = f'B{BLOCK_ID.get(type(block))}'
-
-        save_segment = f'?{x_segment}{y_segment}{block_segment}'
-
-        string += save_segment
-
-    with open(BASE_DIR / 'saves' / f'save_id_{SESSION_ID}.txt', mode='w') as save:
-        save.write(string)
-        save.close()
-    print(f'Saved with session id {SESSION_ID}')
 
 import re
+import struct
+
+
+def save():
+    path = BASE_DIR / 'saves' / f'save_id_{SESSION_ID}.bin'
+
+    with open(path, 'wb') as file:
+        for (x, y), block in WORLD.items():
+            block_id = BLOCK_ID[type(block)]
+            file.write(struct.pack(
+                'BbbB',
+                block_id,
+                x,
+                y,
+                block.rotation
+            ))
+    print(f'Saved world with id {SESSION_ID}')
 
 ID_BLOCK: dict[int, type[Block]] = {
     block_id: block_class
     for block_class, block_id in BLOCK_ID.items()
 }
 def load(id: int):
-    path = BASE_DIR / 'saves' / f'save_id_{id}.txt'
+    path = BASE_DIR / 'saves' / f'save_id_{id}.bin'
 
-    with open(path, 'r', encoding='utf-8') as save_file:
-        loaded_string = save_file.read().strip()
+    with open(path, 'rb') as file:
+        data = file.read()
 
-    pattern = re.compile(r'\?X(-?\d+)Y(-?\d+)B(\d+)')
-    matches = list(pattern.finditer(loaded_string))
-
-    if not loaded_string:
-        return
-
-    if not matches or ''.join(match.group(0) for match in matches) != loaded_string:
-        raise ValueError("Invalid save format")
+    if len(data) % 4 != 0:
+        raise ValueError("Corrupted save file")
 
     WORLD.clear()
     active_cells.clear()
     BLOCKED.clear()
     DIRTY_BLOCKS.clear()
 
-    for match in matches:
-        x, y, block_id = map(int, match.groups())
-
-        if block_id not in ID_BLOCK:
-            raise ValueError(f"Unknown block ID: {block_id}")
+    for i in range(0, len(data), 4):
+        block_id, x, y, rotation = struct.unpack(
+            'BbbB', data[i:i + 4]
+        )
 
         block_class = ID_BLOCK[block_id]
-        WORLD[(x, y)] = block_class()
+        WORLD[(x, y)] = block_class(rotation)
 
     for pos, block in WORLD.items():
         attach(pos, block)
